@@ -20,7 +20,7 @@ setuptools.setup(
 
    long_description_content_type="text/markdown",
 
-     url="https://github.com/javatechy/dokr",
+     url="https://github.com/Lanboost/pygame_lui",
 
      packages=setuptools.find_packages(),
 
@@ -28,7 +28,7 @@ setuptools.setup(
 
          "Programming Language :: Python :: 3",
 
-         "License :: MIT License",
+         "License :: OSI Approved :: MIT License",
 
          "Operating System :: OS Independent",
 
