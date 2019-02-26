@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
 
-     name='pygame_lui',  
+     name='pygamelui',  
 
      version='0.1',
 
