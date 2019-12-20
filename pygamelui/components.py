@@ -21,8 +21,11 @@ class PyGameComponent(object):
         self.width = 0
         self.height = 0
         self.rect = {"left":0, "top":0, "right":0, "bottom":0}
+        self.screen_rect = {"left":0, "top":0, "right":0, "bottom":0}
         self.anchors = {"min_x":0, "min_y":0, "max_x":1, "max_y":1}
         self.pivot = {"x":0, "y":0}
+
+        self.mouse_state = {"left_down":False,"middle_down":False, "right_down":False, "mouse_over":False}
         
     def align_pivot(self, x, y):
         if y == ALIGN_TOP:
@@ -68,6 +71,26 @@ class PyGameComponent(object):
     def set_rect(self, left, top, right, bottom):
    
         self.rect = {"left":left, "top":top, "right":right, "bottom":bottom}
+
+    def _set_x(self, x):
+        parent_offset_x = self.screen_rect['left']-self.x
+        self.x = x
+        self.screen_rect['left'] = self.x+parent_offset_x
+        self.screen_rect['right'] = self.screen_rect['left']+self.width
+
+    def _set_y(self, y):
+        parent_offset_y = self.screen_rect['top']-self.y
+        self.y = y
+        self.screen_rect['top'] = self.y+parent_offset_y
+        self.screen_rect['bottom'] = self.screen_rect['top']+self.height
+
+    def _set_width(self, width):
+        self.width = width
+        self.screen_rect['right'] = self.screen_rect['left']+self.width
+
+    def _set_height(self, height):
+        self.height = height
+        self.screen_rect['top'] = self.screen_rect['bottom']+self.height
         
     def set_anchors(self, min_x, min_y, max_x, max_y):
         self.anchors = {"min_x":min_x, "min_y":min_y, "max_x":max_x, "max_y":max_y}
@@ -75,7 +98,7 @@ class PyGameComponent(object):
     def set_pivot(self, pivot_x, pivot_y):
         self.pivot = {"x":pivot_x, "y":pivot_y}
         
-    def revalidate(self, parent_width, parent_height, is_self=False):
+    def revalidate(self, parent_offset_x, parent_offset_y, parent_width, parent_height, is_self=False):
         #use x,y,height, width if anchors are at one pos
         if not is_self:
             if self.anchors["max_x"] == self.anchors["min_x"]:
@@ -92,14 +115,32 @@ class PyGameComponent(object):
                 self.height = parent_height*(self.anchors["max_y"]-self.anchors["min_y"])-self.rect["top"]-self.rect["bottom"]
                 self.y = self.rect["top"]+parent_height*self.anchors["min_y"]
             #print(self.x, self.y, self.width, self.height, parent_width, parent_height)
+
+        self.screen_rect['left'] = self.x+parent_offset_x
+        self.screen_rect['top'] = self.y+parent_offset_y
+        self.screen_rect['right'] = self.screen_rect['left']+self.width
+        self.screen_rect['bottom'] = self.screen_rect['top']+self.height
         
     def handle_event(self, event):
         return False
+
     def draw(self,surface, offsetx, offsety):
         pass
-    
-    def handle_mouse(self, x, y, button, click_type):
-        return False
+
+    def mouse_enter(self):
+        pass
+
+    def mouse_exit(self):
+        pass
+
+    def mouse_down(self, button):
+        pass
+
+    def mouse_up(self, button):
+        pass
+
+    def mouse_clicked(self, button):
+        pass
         
 class Panel(PyGameComponent):
     def __init__(self):
@@ -109,7 +150,7 @@ class Panel(PyGameComponent):
         
         
     def add_child(self,obj):
-        obj.revalidate(self.width, self.height)
+        obj.revalidate(self.screen_rect['left'], self.screen_rect['top'], self.width, self.height)
         self.children += [obj]
         
     def set_background(self, color):
@@ -121,17 +162,6 @@ class Panel(PyGameComponent):
     def clear(self):
         self.children = []
         
-    def handle_mouse(self, x, y, button, click_type):
-        for c in self.children:
-            if not c.visible:
-                continue
-            nx = x-c.x
-            ny = y-c.y
-            if nx >= 0 and ny >= 0 and nx < c.width and ny < c.height:
-                if c.handle_mouse(nx, ny, button, click_type):
-                    return True
-        return False
-        
     def handle_event(self,event):
         for c in self.children:
             if not c.visible:
@@ -140,14 +170,15 @@ class Panel(PyGameComponent):
                 return True
         return False
         
-    def revalidate(self, parent_width, parent_height, is_self=False, ignore_child=False):
-        super(Panel, self).revalidate(parent_width, parent_height, is_self)
+    def revalidate(self, parent_offset_x, parent_offset_y, parent_width, parent_height, is_self=False, ignore_child=False):
+        super(Panel, self).revalidate(parent_offset_x, parent_offset_y, parent_width, parent_height, is_self)
         if not ignore_child:
             for c in self.children:
-                c.revalidate(self.width, self.height)
+                c.revalidate(parent_offset_x+self.x, parent_offset_y+self.y, self.width, self.height)
         
     def draw(self, surface, offsetx, offsety):
-        pygame.draw.rect(surface, self.background_color, [offsetx+self.x, offsety+self.y, self.width, self.height], 0)
+        if self.background_color:
+            pygame.draw.rect(surface, self.background_color, [offsetx+self.x, offsety+self.y, self.width, self.height], 0)
             
         for c in self.children:
             if not c.visible:
@@ -156,35 +187,42 @@ class Panel(PyGameComponent):
             
             c.draw(surface, offsetx+self.x, offsety+self.y)
             
-BUTTON_NORMAL = 0
-BUTTON_HOVER = 1
-BUTTON_CLICKED = 2
-BUTTON_SELECTED = 3
 class Button(PyGameComponent):
     def __init__(self, text):
         super(Button, self).__init__()
         self.text = text
         self.on_click = EventHandler()
-        self.state = BUTTON_NORMAL
         self.font = TEXT_FONT
         self.color_scheme = [
             [(192, 192, 192), (128, 128, 128)],
-            [(192, 192, 192), (128, 128, 128)],
+            [(128, 192, 192), (128, 128, 128)],
             [(192, 192, 192), (128, 128, 128)],
             [(128, 128, 128), (90, 90, 90)]
         ]
-    def handle_mouse(self, x, y, button, click_type):
-        if click_type == 1:
+        self.hover = False
+        self.mousedown = False
+
+    def mouse_clicked(self, button):
+        if button == 0:
             self.on_click.fire()
+
     def set_font(self, font):
         self.font = font
-    def set_state(self, state):
-        self.state = state
-        
+
+    def mouse_enter(self):
+        self.hover = True
+
+    def mouse_exit(self):
+        self.hover = False
         
     def draw(self, surface, offsetx, offsety):
-        
-        colors = self.color_scheme[self.state]
+        colors = self.color_scheme[0]
+        if self.mousedown:
+            colors = self.color_scheme[2]
+        else:
+            if self.hover:
+                colors = self.color_scheme[1]
+
         pygame.draw.rect(surface, colors[0], [offsetx+self.x, offsety+self.y, self.width, self.height], 0)
         pygame.draw.rect(surface, colors[1], [offsetx+self.x, offsety+self.y, self.width, self.height], 3)
         #textsurface = self.font.render(str(self.text), True, (0,0,0))
@@ -247,6 +285,12 @@ class RadioButtonHandler(object):
 class RadioButton(Button):
     def __init__(self, text):
         super(RadioButton, self).__init__(text)
+
+    def draw(self, surface, offsetx, offsety):
+        super(RadioButton, self).draw(surface, offsetx, offsety)
+        print(self.hover)
+        print(self.screen_rect)
+
 class CheckBox(Button):
     def __init__(self, text, check_value = False):
         super(CheckBox, self).__init__(text)
@@ -264,82 +308,64 @@ class CheckBox(Button):
         self.checked = not self.checked
         self.__update_check()
     
-class TabPanel(Panel):
-    def __init__(self):
-        super(TabPanel, self).__init__()
-        self.radioh = RadioButtonHandler()
-        self.menu = HorizontalLayoutPanel(100, 40)
-        self.menu.set_pos(0,0)
-        self.menu.set_size(400, 40)
-        self.display = Panel()
-        self.display.set_pos(0,45)
-        self.display.set_size(400,500)
-        self.panels = []
-        self.add_child(self.menu)
-        self.add_child(self.display)
-        self.radioh.on_change.add(self.g_set_selected_panel())
-        self.on_change = EventHandler()
-        self.selected = -1
-    def set_size(self, width, height):
-        super(TabPanel, self).set_size(width, height)
-        self.display.set_size(width,height-45)
-        self.menu.set_size(width, 40)
-    def g_set_selected_panel(self):
-        def f():
-            self.set_selected_panel(self.radioh.selected)
-        return f
-    def set_selected_panel(self, id):
-        for p in self.panels:
-            p.set_visible(False)
-        self.panels[id].set_visible(True)
-        self.selected = id
-        self.on_change.fire()
-    def add_tab(self, text, panel):
-        b = RadioButton(text)
-        self.radioh.add(b)
-        self.menu.add_child(b)
-        self.panels += [panel]
-        panel.set_pos(0,0)
-        panel.set_size(self.display.width, self.display.height)
-        panel.set_visible(False)
-        self.display.add_child(panel)
+
         
 class VerticalLayoutPanel(Panel):
-    def __init__(self, child_width, child_height, spacing = 10):
+    def __init__(self, child_width, child_height, spacing = 10, padding = (10,10,10,10)):
         super(VerticalLayoutPanel, self).__init__()
         self.child_width = child_width
         self.child_height = child_height
         self.spacing = spacing
+        self.padding = padding
+
     def add_child(self,obj):
-        obj.width = self.child_width
-        obj.height = self.child_height
-        obj.x = 0
-        obj.y = len(self.children)*(self.child_height+self.spacing)
+        obj.revalidate(self.screen_rect['left'], self.screen_rect['top'], self.width, self.height)
         self.children += [obj]
+
     def remove_child(self,obj):
         self.children.remove(obj)
         
-    def revalidate(self, parent_width, parent_height, is_self=False):
-        super(VerticalLayoutPanel, self).revalidate(parent_width, parent_height, is_self, True)
-        
+    def revalidate(self, parent_offset_x, parent_offset_y, parent_width, parent_height, is_self=False):
+        super(VerticalLayoutPanel, self).revalidate(parent_offset_x, parent_offset_y, parent_width, parent_height, is_self, True)
+        deltay = self.padding[1]
+        #if not ignore_child:
+        for c in self.children:
+            c.revalidate(parent_offset_x+self.x, parent_offset_y+self.y, self.width, self.height)
+            c._set_y(deltay)
+            deltay += c.height+self.spacing
+        deltay += self.padding[3]
+        self._set_height(deltay)
         
 class HorizontalLayoutPanel(Panel):
-    def __init__(self, child_width, child_height, spacing = 10):
+    def __init__(self, child_width=None, child_height=None, spacing = 10, padding = (10,10,10,10)):
         super(HorizontalLayoutPanel, self).__init__()
-        self.child_width = child_width
-        self.child_height = child_height
+        #self.child_width = child_width
+        #self.child_height = child_height
         self.spacing = spacing
+        self.padding = padding
+
     def add_child(self,obj):
-        obj.width = self.child_width
-        obj.height = self.child_height
-        obj.x = len(self.children)*(self.child_width+self.spacing)
-        obj.y = 0
+        obj.revalidate(self.screen_rect['left'], self.screen_rect['top'], self.width, self.height)
+        #obj.width = self.child_width
+        #obj.height = self.child_height
+        #obj.x = len(self.children)*(self.child_width+self.spacing)
+        #obj.y = 0
         self.children += [obj]
+
     def remove_child(self,obj):
         self.children.remove(obj)
         
-    def revalidate(self, parent_width, parent_height, is_self=False):
-        super(HorizontalLayoutPanel, self).revalidate(parent_width, parent_height, is_self, True)
+    def revalidate(self, parent_offset_x, parent_offset_y, parent_width, parent_height, is_self=False, ignore_child=False):
+        super(HorizontalLayoutPanel, self).revalidate(parent_offset_x, parent_offset_y, parent_width, parent_height, is_self, True)
+        deltax = self.padding[0]
+        #if not ignore_child:
+        for c in self.children:
+            c.revalidate(parent_offset_x+self.x, parent_offset_y+self.y, self.width, self.height)
+            c._set_x(deltax)
+            deltax += c.width+self.spacing
+        deltax += self.padding[2]
+        self._set_width(deltax)
+
         
 class CellLayoutPanel(Panel):
     def __init__(self, column_count, child_width, child_height, spacing = 10):
@@ -357,9 +383,58 @@ class CellLayoutPanel(Panel):
     def remove_child(self,obj):
         self.children.remove(obj)
         
-    def revalidate(self, parent_width, parent_height, is_self=False):
-        super(CellLayoutPanel, self).revalidate(parent_width, parent_height, is_self, True)
+    def revalidate(self, parent_offset_x, parent_offset_y, parent_width, parent_height, is_self=False):
+        super(CellLayoutPanel, self).revalidate(parent_offset_x, parent_offset_y, parent_width, parent_height, is_self, True)
+
+class TabPanel(VerticalLayoutPanel):
+    def __init__(self):
+        super(TabPanel, self).__init__(0,0)
+        self.radioh = RadioButtonHandler()
+        self.menu = HorizontalLayoutPanel(100, 40)
+        self.menu.set_rect(0,0, 0, 100)
+        self.menu.set_anchors(0,0,1,0)
+        self.menu.set_background((0,255,0))
+        self.display = Panel()
+        self.display.set_rect(0,100,0,0)
+        self.display.set_anchors(0,0,1,1)
+        self.panels = []
+        self.add_child(self.menu)
+        self.add_child(self.display)
+        self.radioh.on_change.add(self.g_set_selected_panel())
+        self.on_change = EventHandler()
+        self.selected = -1
+
+    def set_size(self, width, height):
+        super(TabPanel, self).set_size(width, height)
+        self.display.set_size(width,height-45)
+        self.menu.set_size(width, 40)
+
+    def g_set_selected_panel(self):
+        def f():
+            self.set_selected_panel(self.radioh.selected)
+        return f
+    def set_selected_panel(self, id):
+        for p in self.panels:
+            p.set_visible(False)
+        self.panels[id].set_visible(True)
+        self.selected = id
+        self.on_change.fire()
+
+    def add_tab(self, text, panel):
+        b = RadioButton(text)
+        self.radioh.add(b)
+
+        b.set_anchors(0,0,0,1)
+        b.set_rect(0,0, 20, 0)
+
+        self.menu.add_child(b)
         
+        self.panels += [panel]
+        #panel.set_pos(0,0)
+        #panel.set_size(self.display.width, self.display.height)
+        #panel.set_visible(False)
+        #self.display.add_child(panel)
+
 class SliderButton(PyGameComponent):
     pass
 class Slider(Panel):
